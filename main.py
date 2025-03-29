@@ -6,8 +6,9 @@ import mimetypes
 
 from time import sleep
 
-my_token = None
-my_username = None
+my_token = ""
+my_username = ""
+artist_id = "2"
 
 known_types = ['FULL', 'ORIGIN', 'CARD_BACK', 'AUTOGRAPH', 'VOICE_MESSAGE', 'AUTOGRAPH_SPECIAL_NOTE', 'SPECIAL_NOTE']
 
@@ -56,20 +57,22 @@ def request_auth():
     global my_token
     global my_username
 
-    while True:
-        my_token = input('Enter your token:')
-        if len(my_token) > 0 and len(my_token.split('.')) == 3:
-            print('Token expires in 1 day!')
-            break
-        else:
-            print('ERROR: Invalid token')
+    if len(my_token) == 0:
+        while True:
+            my_token = input('Enter your token:')
+            if len(my_token) > 0 and len(my_token.split('.')) == 3:
+                print('Token expires in 1 day!')
+                break
+            else:
+                print('ERROR: Invalid token')
 
-    while True:
-        my_username = input('Enter your username:')
-        if len(my_username) > 0:
-            break
-        else:
-            print('ERROR: Invalid username')
+    if len(my_username) == 0:
+        while True:
+            my_username = input('Enter your username:')
+            if len(my_username) > 0:
+                break
+            else:
+                print('ERROR: Invalid username')
 
 
 def send_request(api_url, use_post=False):
@@ -164,13 +167,13 @@ def get_boards():
 
 
 def get_take_book():
-    book_path = 'temp/take_book.json'
+    book_path = f'temp/take_book-{artist_id}.json'
     if os.path.exists(book_path):
         print(f'Loaded book {book_path}')
         with open(book_path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
-    api = 'https://momentica.com/api/v1/marketplace/artists/2/take-books/_search'
+    api = f'https://momentica.com/api/v1/marketplace/artists/{artist_id}/take-books/_search'
     data = send_request_next(api, True)
     with open(book_path, 'w', encoding='utf-8') as f:
         json.dump(data, f)
@@ -179,13 +182,13 @@ def get_take_book():
 
 
 def get_owned_editions():
-    owned_path = 'temp/owned_takes.json'
+    owned_path = f'temp/owned_takes-{artist_id}.json'
     if os.path.exists(owned_path):
         print(f'Loaded editions {owned_path}')
         with open(owned_path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
-    take_url = f'https://momentica.com/api/v2/users/editions?username={my_username}&artistId=2&sortType=OWNED_AT_DESC&pageSize=100'
+    take_url = f'https://momentica.com/api/v2/users/editions?username={my_username}&artistId={artist_id}&sortType=OWNED_AT_DESC&pageSize=100'
     owned_data = send_request_next(take_url)
 
     with open(owned_path, 'w', encoding='utf-8') as f:
@@ -254,7 +257,6 @@ def download_owned():
                 downloaded.append(take_id)
             else:
                 print('\tFailed to download', take_id)
-
             # if i > 8:
             #     break
 
@@ -360,10 +362,10 @@ def make_book_csv():
                     'TakeId': take['takeId'],
                     'Collection': collection['name'],
                     'Category': category['name'],
-                    'Url': ''
+                    'Url': f'https://momentica.com/take/{take['takeUuid']}'
                 }
                 out_rows.append(row)  # break
-    with open("drive_book.csv", mode="w", newline="\n", encoding='utf-8') as file:
+    with open("temp/drive_book.csv", mode="w", newline="\n", encoding='utf-8') as file:
         fieldnames = ["TakeId", "Collection", "Category", "Url"]
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
@@ -373,27 +375,31 @@ def make_book_csv():
 def main():
     global my_token
     global my_username
+    global artist_id
 
-    token_path = 'temp/auth_token.json'
-    if os.path.exists(token_path):
-        with (open(token_path, 'r', encoding='utf-8-sig') as f):
-            data = json.load(f)
-            my_token = data.get('token', None)
-            my_username = data.get('username', None)
-    else:
-        request_auth()
+    # load from
+    config_path = 'config.json'
+    with open(config_path, 'r', encoding='utf-8-sig') as f:
+        config = json.load(f)
+        artist_id = config['artist']
+        my_token = config['token']
+        my_username = config['username']
 
-    print('BEGIN DOWNLOAD')
+    request_auth()
+
+    print('Start download')
     print('\tUsername:', my_username)
     print('\tToken:', my_token)
+    print('\tArtist:', artist_id)
 
-    if my_token is None:
-        input('ERROR: invalid token. Press any key to exit.')
-    if my_username is None:
-        input('ERROR: invalid username. Press any key to exit.')
+    test_command = f'https://momentica.com/api/v2/users/editions?username={my_username}&artistId={artist_id}&sortType=OWNED_AT_DESC&pageSize=1'
+    if not send_request(test_command):
+        input('ERROR: invalid username or token. Press ENTER to exit.')
+        return
 
+    # make_book_csv()
     download_owned()
-    input('🍀Download finished🍀 Press any key to exit.')
+    input('🍀Download finished🍀 Press ENTER to exit.')
 
 
 if __name__ == '__main__':
