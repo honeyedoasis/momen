@@ -4,3 +4,7 @@ momentica
 temp
 auth_token
 links.csv
+build
+dist
+extension
+*.spec

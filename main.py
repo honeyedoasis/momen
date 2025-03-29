@@ -3,7 +3,6 @@ import json
 import os
 import requests
 import mimetypes
-from pathvalidate import sanitize_filename
 
 from time import sleep
 
@@ -14,6 +13,11 @@ known_types = ['FULL', 'ORIGIN', 'CARD_BACK', 'AUTOGRAPH', 'VOICE_MESSAGE', 'AUT
 
 edition_data = None
 
+def sanitize_filename(filename, replacement=''):
+    invalid_chars = r'<>:"/\\|?*'
+    for c in invalid_chars:
+        filename = filename.replace(c, '')
+    return filename
 
 def download_file(url, file_path, timeout=10, skip_exists=True):
     with requests.Session() as session:
