@@ -30,10 +30,10 @@ def download_file(url, file_path, timeout=10, skip_exists=True):
 
             full_path = f'{file_path}{ext}'
             if skip_exists and os.path.exists(full_path):
-                print('FILE EXISTS', full_path)
+                # print('FILE EXISTS', full_path)
                 return 0
 
-            print(f"\tDownloading {file_path} {url}")
+            # print(f"\tDownloading {file_path} {url}")
 
             # Check if the request was successful
             if response.status_code == 200:
@@ -193,7 +193,7 @@ def get_owned_editions():
 
     with open(owned_path, 'w', encoding='utf-8') as f:
         json.dump(owned_data, f)
-        print(f'Saved {len(owned_data)} takes to {owned_path}')
+        print(f'You own {len(owned_data)} editions {owned_path}')
     return owned_data
 
 
@@ -246,7 +246,7 @@ def download_owned():
                 # print('Skipping already downloaded ', take_id)
                 continue
 
-            print(f'Parsing {i}/{len(editions)} Take {take_id}')
+            print(f'{i}/{len(editions)}: {take_id} {take['name']}')
 
             success, link_row = download_edition_take(take, mapping)
 
@@ -387,10 +387,9 @@ def main():
 
     request_auth()
 
-    print('Start download')
-    print('\tUsername:', my_username)
-    print('\tToken:', my_token)
-    print('\tArtist:', artist_id)
+    print('Username:', my_username)
+    print('Token:', my_token)
+    print('Artist:', artist_id)
 
     test_command = f'https://momentica.com/api/v2/users/editions?username={my_username}&artistId={artist_id}&sortType=OWNED_AT_DESC&pageSize=1'
     if not send_request(test_command):
