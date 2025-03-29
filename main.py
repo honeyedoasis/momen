@@ -3,6 +3,7 @@ import json
 import os
 import requests
 import mimetypes
+from pathvalidate import sanitize_filename
 
 from time import sleep
 
@@ -73,66 +74,22 @@ def has_take(base_path, take_id):
     return False
 
 
-def download_board(data):
-    print(data)
-    board = data['collectBoard']
-    board_name = board['name']
-    board_thumb = board['thumbnail']['url']
-
-    board_api = f'https://momentica.com/api/v1/collect-board?name={board_name}&username={my_username}'
-    takes_data = send_request(board_api)
-    all_takes = takes_data['takes']
-
-    base_dir = f'momentica/{board_name}'
-
-    for take in all_takes:
-        take_path = f'{base_dir}/{take['takeId']}'
-        if take['isOwned'] and not has_take(base_dir, take['takeId']):
-            os.makedirs(base_dir, exist_ok=True)
-
-            # download_take(take, take_path)
-
-
-# def download_take(take, take_path):
-#     print(f'Downloading take {take['takeId']}')
-#     print(take['thumbnail']['url'])
-#     download_file(take['thumbnail']['url'], take_path)
-
-def download_take2(take_id):
-    take = f'https://momentica.com/api/v1/takes/{take_id}'
-    contents = take['contents']
-
-    card_back_url = contents['cardBackImage']['url']
-
-    assets = contents['assets']
-    for asset in assets:
-        asset_id = asset['original']['uuid']
-        if asset['original']['type'] == 'VIDEO':
-            video_url = asset['original']['url']
-            thumb_url = asset['thumbnail']['url']
-        elif asset['original']['type'] == 'IMAGE':
-            image_url = asset['original']['url']
-        else:
-            print('UNKNOWN ASSET TYPE ', asset['original']['type'])
-            breakpoint()
-
-
 def send_request(api_url, use_post=False):
     headers = {
         'accept': 'application/json, text/plain, */*',
         'language': 'en',
         'sec-ch-ua-platform': '"Android"',
+        'Authorization': my_token
     }
 
     url = api_url
 
     with requests.Session() as session:
         session.headers.update(headers)
-        session.headers.update({
-            'Authorization': f'Bearer {my_token}'
-        })
+        # session.headers.update({
+        #     'Authorization': f'{my_token}'
+        # })
 
-        print(session.headers)
         try:
             print(url)
             if use_post:
@@ -160,16 +117,14 @@ def send_request_next(api_url, use_post=False):
             next_api = f'{api_url}&next={next}'
 
         response = send_request(next_api, use_post)
-        print(response['data'])
         out_data += response['data']
-        print('Loaded data', len(response['data']), len(out_data))
+        print('Loading data', len(response['data']), len(out_data))
 
         next = response['cursor'].get('next')
         if not next:
-            print(out_data)
             return out_data
 
-        sleep(5)
+        sleep(1)
 
 
 def get_take_id(take):
@@ -214,7 +169,7 @@ def get_boards():
 
 
 def get_take_book():
-    book_path = 'take_book.json'
+    book_path = 'temp/take_book.json'
     if os.path.exists(book_path):
         print(f'Loaded book {book_path}')
         with open(book_path, 'r', encoding='utf-8') as f:
@@ -225,29 +180,11 @@ def get_take_book():
     with open(book_path, 'w', encoding='utf-8') as f:
         json.dump(data, f)
 
-
-def write_takes_list():
-    api = 'https://momentica.com/api/v1/artist-pages/2/takes?pageSize=100&sortType=RELEASED_AT_DESC'
-    all_takes = send_request_next(api)
-    with open('all_takes.json', 'w', encoding='utf-8') as f:
-        json.dump(all_takes, f)
-
-
-def write_detailed_takes():
-    out = []
-    with open('all_takes.json', 'r', encoding='utf-8') as f:
-        all_takes = json.load(f)
-
-    for i, t in enumerate(all_takes):
-        api = f'https://momentica.com/api/v2/takes/{t['uuid']}'
-        out.append(send_request(api))  # if i > 2:  #     break
-
-    with open('takes_data.json', 'w', encoding='utf-8') as f:
-        json.dump(out, f, indent=4)
+    return data
 
 
 def get_owned_editions():
-    owned_path = 'owned_takes.json'
+    owned_path = 'temp/owned_takes.json'
     if os.path.exists(owned_path):
         print(f'Loaded editions {owned_path}')
         with open(owned_path, 'r', encoding='utf-8') as f:
@@ -259,38 +196,43 @@ def get_owned_editions():
     with open(owned_path, 'w', encoding='utf-8') as f:
         json.dump(owned_data, f)
         print(f'Saved {len(owned_data)} takes to {owned_path}')
+    return owned_data
 
 
 def make_mapping(book):
     folder_map = dict()
     for collection in book:
-        print(collection['name'])
+        # print(collection['name'])
+        collection_name = sanitize_filename(collection['name'])
         for category in collection['categories']:
-            print('\t', category['name'])
+            category_name = sanitize_filename(category['name'])
+            # print('\t', category['name'])
             for take in category['takes']:
-                folder = f'{collection['name']}/{category['name']}'
+                folder = f'{collection_name}/{category_name}'
                 folder_map[take['takeId']] = folder
+
     return folder_map
 
 
 def download_owned():
     book = get_take_book()
     mapping = make_mapping(book)
-    # for id, folder in mapping.items():
-    #     print(id, folder)
 
     editions = get_owned_editions()
     for edition in editions:
         take = edition['take']
-        download_edition_take(take, mapping)  # break
+        download_edition_take(take, mapping)
 
 
 def download_edition_take(take, folder_map):
     take_id = take['id']
-    folder = folder_map.get(take_id, 'unknown')
+    folder = folder_map.get(take_id, None)
+
+    if not folder:
+        folder = sanitize_filename(take['name'].split(',')[1])
+
     dest_folder = f'momentica/{folder}'
     os.makedirs(dest_folder, exist_ok=True)
-
     if os.path.exists(dest_folder):
         if has_take(dest_folder, take_id):
             return
@@ -302,7 +244,7 @@ def download_real_take(take_id, folder):
     url = f'https://momentica.com/api/v1/takes/{take_id}'
     full_data = send_request(url)
 
-    member_name = full_data['artistMembers'][0]['name']
+    member_name = full_data['name'].split(',')[0]
 
     print(full_data)
     contents = full_data['contents']
@@ -314,8 +256,7 @@ def download_real_take(take_id, folder):
 
         if type not in known_types:
             print('UNKNOWN TYPE ', type)
-            print(full_data)
-            breakpoint()
+            print(full_data)  # breakpoint()
 
         elif type == 'CARD_BACK':
             card_path = f'{folder}/{member_name}-CARD_BACK'
@@ -327,15 +268,15 @@ def download_real_take(take_id, folder):
             autograph_note_path = f'{folder}/{member_name}-AUTOGRAPH_SPECIAL_NOTE'
             download_file(asset_url, autograph_note_path)
         elif type == 'VOICE_MESSAGE':
-            voice_path = f'{folder}/{take_id}-VOICE_MESSAGE'
+            voice_path = f'{folder}/{member_name}-VOICE_MESSAGE-{take_id}'
             download_file(asset_url, voice_path)
         elif type == 'SPECIAL_NOTE':
-            special_note = f'{folder}/{take_id}-SPECIAL_NOTE'
+            special_note = f'{folder}/{member_name}-SPECIAL_NOTE-{take_id}'
             download_file(asset_url, special_note)
 
     origin_asset = contents['originAsset']
     origin_url = origin_asset['url']
-    origin_path = f'{folder}/{take_id}'
+    origin_path = f'{folder}/{member_name}-{origin_asset['type']}-{take_id}'
     download_file(origin_url, origin_path)
 
 
@@ -362,17 +303,31 @@ def make_book_csv():
         writer.writerows(out_rows)
 
 
-if __name__ == '__main__':
+def main():
+    global my_token
+    global my_username
 
-    if os.path.exists('test_auth'):
-        with open('test_auth') as f:
-            my_token, my_username = f.read().splitlines()
+    token_path = 'temp/auth_token.json'
+    if os.path.exists(token_path):
+        with (open(token_path, 'r', encoding='utf-8-sig') as f):
+            data = json.load(f)
+            my_token = data.get('token', None)
+            my_username = data.get('username', None)
     else:
         request_auth()
+
+    print('BEGIN DOWNLOAD')
+    print('\tUsername:', my_username)
+    print('\tToken:', my_token)
 
     if my_token is None:
         input('ERROR: invalid token. Press any key to exit.')
     if my_username is None:
         input('ERROR: invalid username. Press any key to exit.')
 
-    download_owned()  # input('🍀Download finished🍀 Press any key to exit.')
+    download_owned()
+    input('🍀Download finished🍀 Press any key to exit.')
+
+
+if __name__ == '__main__':
+    main()

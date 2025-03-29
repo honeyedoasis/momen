@@ -1,2 +1,5 @@
 ﻿.idea/
 .venv/
+momentica
+temp
+auth_token
