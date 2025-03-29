@@ -1,0 +1,32 @@
+{
+  "manifest_version": 2,
+  "name": "Momen token grabber",
+  "version": "0.1",
+  "author": "",
+  "description": "Display momen token",
+  "permissions": [
+    "webRequest",
+    "webRequestBlocking",
+    "<all_urls>",
+    "storage"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ]
+    }
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "browser_action": {
+    "default_popup": "popup.html",
+    "default_title": "A tooltip popup description when you hover over the Chrome Extension icon."
+  }
+}

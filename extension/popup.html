@@ -1,0 +1,39 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Token Viewer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            width: 400px;
+            padding: 2px;
+        }
+        h2 {
+            font-size: 16px;
+        }
+        #token-container {
+            width: 100%;
+            background: #f3f3f3;
+            padding: 4px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+        #token {
+            font-family: monospace;
+            display: block; /* Keeps it block-level */
+            word-break: break-all; /* Breaks long words */
+            overflow-wrap: break-word; /* Ensures wrapping */
+        }
+    </style>
+</head>
+<body>
+
+<h2>Token</h2>
+
+<div id="token-container">
+    <p id="token">No token captured yet.</p>
+</div>
+
+<script src="popup.js"></script>
+</body>
+</html>
