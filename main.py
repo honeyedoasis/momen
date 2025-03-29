@@ -18,8 +18,7 @@ edition_data = None
 def download_file(url, file_path, timeout=10, skip_exists=True):
     with requests.Session() as session:
         try:
-            print(f"Downloading {file_path} {url}")
-            response = session.get(url)
+            response = session.get(url, timeout=timeout)
 
             content_type = response.headers['content-type']
             ext = mimetypes.guess_extension(content_type)
@@ -28,6 +27,8 @@ def download_file(url, file_path, timeout=10, skip_exists=True):
             if skip_exists and os.path.exists(full_path):
                 print('FILE EXISTS', full_path)
                 return 0
+
+            print(f"Downloading {file_path} {url}")
 
             # Check if the request was successful
             if response.status_code == 200:
@@ -65,13 +66,6 @@ def request_auth():
             break
         else:
             print('ERROR: Invalid username')
-
-
-def has_take(base_path, take_id):
-    for f in os.listdir(base_path):
-        if f.startswith(str(take_id)):
-            return True
-    return False
 
 
 def send_request(api_url, use_post=False):
@@ -215,13 +209,29 @@ def make_mapping(book):
 
 
 def download_owned():
+    os.makedirs('temp', exist_ok=True)
     book = get_take_book()
     mapping = make_mapping(book)
-
     editions = get_owned_editions()
-    for edition in editions:
-        take = edition['take']
-        download_edition_take(take, mapping)
+
+    downloaded_path = 'temp/downloaded.txt'
+    downloaded = []
+    if os.path.exists(downloaded_path):
+        with open(downloaded_path, 'r', encoding='utf-8') as f:
+            downloaded = [int(x) for x in f.read().splitlines()]
+
+    with open(downloaded_path, 'a', encoding='utf-8') as archive_file:
+        for i, edition in enumerate(editions):
+            take = edition['take']
+            take_id = take['id']
+            print(f'Parsing {i}/{len(editions)} Take {take_id}')
+
+            if take_id in downloaded:
+                print('Skipping already downloaded ', take_id)
+                continue
+
+            if download_edition_take(take, mapping):
+                archive_file.write(f'{take_id}\n')
 
 
 def download_edition_take(take, folder_map):
@@ -233,11 +243,8 @@ def download_edition_take(take, folder_map):
 
     dest_folder = f'momentica/{folder}'
     os.makedirs(dest_folder, exist_ok=True)
-    if os.path.exists(dest_folder):
-        if has_take(dest_folder, take_id):
-            return
 
-    download_real_take(take_id, dest_folder)
+    return download_real_take(take_id, dest_folder)
 
 
 def download_real_take(take_id, folder):
@@ -260,24 +267,32 @@ def download_real_take(take_id, folder):
 
         elif type == 'CARD_BACK':
             card_path = f'{folder}/{member_name}-CARD_BACK'
-            download_file(asset_url, card_path)
+            if download_file(asset_url, card_path) != 1:
+                return False
         elif type == 'AUTOGRAPH':
             autograph_path = f'{folder}/{member_name}-AUTOGRAPH'
-            download_file(asset_url, autograph_path)
+            if download_file(asset_url, autograph_path) == -1:
+                return False
         elif type == 'AUTOGRAPH_SPECIAL_NOTE':
             autograph_note_path = f'{folder}/{member_name}-AUTOGRAPH_SPECIAL_NOTE'
-            download_file(asset_url, autograph_note_path)
+            if download_file(asset_url, autograph_note_path) == -1:
+                return False
         elif type == 'VOICE_MESSAGE':
             voice_path = f'{folder}/{member_name}-VOICE_MESSAGE-{take_id}'
-            download_file(asset_url, voice_path)
+            if download_file(asset_url, voice_path) == -1:
+                return False
         elif type == 'SPECIAL_NOTE':
             special_note = f'{folder}/{member_name}-SPECIAL_NOTE-{take_id}'
-            download_file(asset_url, special_note)
+            if download_file(asset_url, special_note) == -1:
+                return False
 
     origin_asset = contents['originAsset']
     origin_url = origin_asset['url']
     origin_path = f'{folder}/{member_name}-{origin_asset['type']}-{take_id}'
-    download_file(origin_url, origin_path)
+    if download_file(origin_url, origin_path) == -1:
+        return False
+
+    return True
 
 
 def make_book_csv():
