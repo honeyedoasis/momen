@@ -14,6 +14,8 @@ known_types = ['FULL', 'ORIGIN', 'CARD_BACK', 'AUTOGRAPH', 'VOICE_MESSAGE', 'AUT
 
 edition_data = None
 
+downloaded_path = 'temp/downloaded.txt'
+
 def sanitize_filename(filename, replacement=''):
     invalid_chars = r'<>:"/\\|?*'
     for c in invalid_chars:
@@ -59,7 +61,7 @@ def request_auth():
 
     if len(my_token) == 0:
         while True:
-            my_token = input('Enter your token:')
+            my_token = input('Enter your token: ')
             if len(my_token) > 0 and len(my_token.split('.')) == 3:
                 print('Token expires in 1 day!')
                 break
@@ -68,7 +70,7 @@ def request_auth():
 
     if len(my_username) == 0:
         while True:
-            my_username = input('Enter your username:')
+            my_username = input('Enter your username: ')
             if len(my_username) > 0:
                 break
             else:
@@ -106,7 +108,7 @@ def send_request(api_url, use_post=False):
             print(f"Exception: {e}")
 
 
-def send_request_next(api_url, use_post=False):
+def send_request_next(api_url, use_post=False, msg='Loading data'):
     out_data = []
     next = None
     while True:
@@ -116,7 +118,7 @@ def send_request_next(api_url, use_post=False):
 
         response = send_request(next_api, use_post)
         out_data += response['data']
-        print('Loading data', len(response['data']), len(out_data))
+        print(msg, len(out_data))
 
         next = response['cursor'].get('next')
         if not next:
@@ -181,20 +183,21 @@ def get_take_book():
     return data
 
 
-def get_owned_editions():
-    owned_path = f'temp/owned_takes-{artist_id}.json'
-    if os.path.exists(owned_path):
-        print(f'Loaded editions {owned_path}')
-        with open(owned_path, 'r', encoding='utf-8') as f:
+def get_all_takes():
+    takes_path = f'temp/takes-{artist_id}.json'
+    if os.path.exists(takes_path):
+        print(f'Loaded takes {takes_path}')
+        with open(takes_path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
-    take_url = f'https://momentica.com/api/v2/users/editions?username={my_username}&artistId={artist_id}&sortType=OWNED_AT_DESC&pageSize=100'
-    owned_data = send_request_next(take_url)
 
-    with open(owned_path, 'w', encoding='utf-8') as f:
-        json.dump(owned_data, f)
-        print(f'You own {len(owned_data)} editions {owned_path}')
-    return owned_data
+    take_url = f'https://momentica.com/api/v1/artist-pages/{artist_id}/takes?sortType=RELEASED_AT_DESC&pageSize=100'
+    takes_data = send_request_next(take_url, msg='Loading takes')
+
+    with open(takes_path, 'w', encoding='utf-8') as f:
+        json.dump(takes_data, f)
+        print('Saved takes to', takes_path)
+    return takes_data
 
 
 def make_mapping(book):
@@ -224,13 +227,12 @@ def get_links_csv():
     return []
 
 
-def download_owned():
-    os.makedirs('temp', exist_ok=True)
+def download_owned(all_takes):
     book = get_take_book()
     mapping = make_mapping(book)
-    editions = get_owned_editions()
 
-    downloaded_path = 'temp/downloaded.txt'
+    owned_takes = [t for t in all_takes if t['isOwned']]
+
     downloaded = []
     if os.path.exists(downloaded_path):
         with open(downloaded_path, 'r', encoding='utf-8') as f:
@@ -238,17 +240,14 @@ def download_owned():
 
     all_links = get_links_csv()
     with open(downloaded_path, 'a', encoding='utf-8') as archive_file:
-        for i, edition in enumerate(editions):
-            take = edition['take']
-            take_id = take['id']
-
+        for i, take in enumerate(owned_takes):
+            take_id = take['takeId']
             if take_id in downloaded:
                 # print('Skipping already downloaded ', take_id)
                 continue
 
-            print(f'{i}/{len(editions)}: {take_id} {take['name']}')
-
-            success, link_row = download_edition_take(take, mapping)
+            success, link_row = download_take(take, mapping)
+            print(f'{i}/{len(owned_takes)}: {take_id} {take['name']}')
 
             if success:
                 archive_file.write(f'{take_id}\n')
@@ -269,19 +268,6 @@ def download_owned():
         print("Wrote links to", LINKS_PATH)
 
 
-def download_edition_take(take, folder_map):
-    take_id = take['id']
-    folder = folder_map.get(take_id, None)
-
-    if not folder:
-        folder = sanitize_filename(take['name'].split(',')[1])
-
-    dest_folder = f'momentica/{folder}'
-    os.makedirs(dest_folder, exist_ok=True)
-
-    return download_real_take(take_id, dest_folder)
-
-
 def make_links_row(take_id):
     return {
         'TAKE_ID': take_id,
@@ -294,19 +280,26 @@ def make_links_row(take_id):
     }
 
 
-def download_real_take(take_id, folder):
-    url = f'https://momentica.com/api/v1/takes/{take_id}'
-    full_data = send_request(url)
+def get_take_folder(take, folder_map):
+    take_id = take['takeId']
+    folder = folder_map.get(take_id, None)
 
-    member_name = full_data['name'].split(',')[0]
+    if not folder:
+        folder = sanitize_filename(take['name'].split(',')[1])
 
-    # print(full_data)
-    contents = full_data['contents']
+    folder = f'momentica/{folder}'
+    os.makedirs(folder, exist_ok=True)
+    return folder
 
-    assets = contents['assets']
-
+def download_take(take, folder_map):
+    # print(take)
+    folder = get_take_folder(take, folder_map)
+    member_name = take['name'].split(',')[0]
+    take_id = take['takeId']
     links_row = make_links_row(take_id)
 
+    contents = take['contents']
+    assets = contents['assets']
     for asset in assets:
         asset_type = asset['type']
         asset_url = asset['original']['url']
@@ -316,7 +309,7 @@ def download_real_take(take_id, folder):
 
         if asset_type not in known_types:
             print('UNKNOWN TYPE ', asset_type)
-            print(full_data)  # breakpoint()
+            print(take) # breakpoint()
 
         elif asset_type == 'CARD_BACK':
             card_path = f'{folder}/{member_name}-CARD_BACK'
@@ -348,7 +341,6 @@ def download_real_take(take_id, folder):
 
     return True, links_row
 
-
 def make_book_csv():
     book = get_take_book()
 
@@ -370,6 +362,28 @@ def make_book_csv():
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(out_rows)
+
+def log_takes(all_takes, write_to_file):
+    owned_takes = [t for t in all_takes if t['isOwned']]
+    missing_takes = [t for t in all_takes if not t['isOwned']]
+
+    if write_to_file:
+        os.makedirs('log', exist_ok=True)
+        write_takes(owned_takes, f'log/owned_takes-{artist_id}.csv')
+        write_takes(missing_takes, f'log/missing_takes-{artist_id}.csv')
+
+    print(f'Total takes: {len(all_takes)}, Owned: {len(owned_takes)}, Missing: {len(missing_takes)}')
+
+
+def write_takes(take_list, file_path):
+    lines = []
+    for t in take_list:
+        line = [str(t['takeId']), t['name'].replace(',', ''), f'https://momentica.com/take/{t['uuid']}']
+        lines.append(', '.join(line))
+
+    with open(file_path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines))
+        print('Created', file_path)
 
 
 def main():
@@ -393,13 +407,23 @@ def main():
 
     test_command = f'https://momentica.com/api/v2/users/editions?username={my_username}&artistId={artist_id}&sortType=OWNED_AT_DESC&pageSize=1'
     if not send_request(test_command):
-        input('ERROR: invalid username or token. Press ENTER to exit.')
+        input('ERROR: invalid username or token. You need to refresh your token once a day!!. Press ENTER to exit.')
         return
 
     # make_book_csv()
-    download_owned()
+    os.makedirs('temp', exist_ok=True)
+
+    all_takes = get_all_takes()
+    download_owned(all_takes)
+
+    write_to_file = input('Do you want to save your owned and missing takes? [y]/[n]: ').lower() == 'y'
+    log_takes(all_takes, write_to_file)
+
     input('🍀Download finished🍀 Press ENTER to exit.')
 
-
+'''
+TODO
+ALL_ARTIST_TAKES: https://momentica.com/api/v1/artist-pages/2/takes?sortType=RELEASED_AT_DESC&pageSize=100
+'''
 if __name__ == '__main__':
     main()

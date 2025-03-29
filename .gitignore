@@ -9,3 +9,4 @@ dist
 extension
 *.spec
 main.exe
+log/
