@@ -28,7 +28,7 @@ def download_file(url, file_path, timeout=10, skip_exists=True):
                 print('FILE EXISTS', full_path)
                 return 0
 
-            print(f"Downloading {file_path} {url}")
+            print(f"\tDownloading {file_path} {url}")
 
             # Check if the request was successful
             if response.status_code == 200:
@@ -40,10 +40,10 @@ def download_file(url, file_path, timeout=10, skip_exists=True):
                 print(f"Failed to download file. Status code: {response.status_code}")
         except requests.exceptions.RequestException as e:
             print(f"An error occurred: {e}")
-            return None
+            return -1
         except Exception as e:
             print(f"exception: {e}")
-            return None
+            return -1
 
     return -1
 
@@ -80,12 +80,9 @@ def send_request(api_url, use_post=False):
 
     with requests.Session() as session:
         session.headers.update(headers)
-        # session.headers.update({
-        #     'Authorization': f'{my_token}'
-        # })
 
         try:
-            print(url)
+            # print(url)
             if use_post:
                 data = {
                     "sortType": "OWNED_EDITION_COUNT_DESC",
@@ -207,6 +204,18 @@ def make_mapping(book):
 
     return folder_map
 
+LINKS_PATH = 'links.csv'
+LINKS_HEADERS = ['TAKE_ID', 'ORIGIN', 'CARD_BACK', 'AUTOGRAPH', 'AUTOGRAPH_SPECIAL_NOTE', 'VOICE_MESSAGE', 'SPECIAL_NOTE']
+
+def get_links_csv():
+    if os.path.exists(LINKS_PATH):
+        # with open(LINKS_PATH, 'r', encoding='utf-8') as f:
+        #     return json.load(f)
+        with open(LINKS_PATH, "r", newline="") as file:
+            return list(csv.DictReader(file, delimiter=","))
+
+    return []
+
 
 def download_owned():
     os.makedirs('temp', exist_ok=True)
@@ -220,18 +229,38 @@ def download_owned():
         with open(downloaded_path, 'r', encoding='utf-8') as f:
             downloaded = [int(x) for x in f.read().splitlines()]
 
+    all_links = get_links_csv()
     with open(downloaded_path, 'a', encoding='utf-8') as archive_file:
         for i, edition in enumerate(editions):
             take = edition['take']
             take_id = take['id']
-            print(f'Parsing {i}/{len(editions)} Take {take_id}')
 
             if take_id in downloaded:
-                print('Skipping already downloaded ', take_id)
+                # print('Skipping already downloaded ', take_id)
                 continue
 
-            if download_edition_take(take, mapping):
+            print(f'Parsing {i}/{len(editions)} Take {take_id}')
+
+            success, link_row = download_edition_take(take, mapping)
+
+            if success:
                 archive_file.write(f'{take_id}\n')
+                all_links.append(link_row)
+                # print(link_row)
+                downloaded.append(take_id)
+            else:
+                print('\tFailed to download', take_id)
+
+            # if i > 8:
+            #     break
+
+    # print(all_links)
+
+    with open(LINKS_PATH, "w", newline="") as f:
+        writer = csv.DictWriter(f, delimiter=",", fieldnames=LINKS_HEADERS)
+        writer.writeheader()
+        writer.writerows(all_links)
+        print("Wrote links to", LINKS_PATH)
 
 
 def download_edition_take(take, folder_map):
@@ -247,52 +276,71 @@ def download_edition_take(take, folder_map):
     return download_real_take(take_id, dest_folder)
 
 
+def make_links_row(take_id):
+    return {
+        'TAKE_ID': take_id,
+        'ORIGIN': '',
+        'CARD_BACK': '',
+        'AUTOGRAPH': '',
+        'AUTOGRAPH_SPECIAL_NOTE': '',
+        'VOICE_MESSAGE': '',
+        'SPECIAL_NOTE': '',
+    }
+
+
 def download_real_take(take_id, folder):
     url = f'https://momentica.com/api/v1/takes/{take_id}'
     full_data = send_request(url)
 
     member_name = full_data['name'].split(',')[0]
 
-    print(full_data)
+    # print(full_data)
     contents = full_data['contents']
 
     assets = contents['assets']
+
+    links_row = make_links_row(take_id)
+
     for asset in assets:
-        type = asset['type']
+        asset_type = asset['type']
         asset_url = asset['original']['url']
 
-        if type not in known_types:
-            print('UNKNOWN TYPE ', type)
+        if asset_type in links_row:
+            links_row[asset_type] = asset_url
+
+        if asset_type not in known_types:
+            print('UNKNOWN TYPE ', asset_type)
             print(full_data)  # breakpoint()
 
-        elif type == 'CARD_BACK':
+        elif asset_type == 'CARD_BACK':
             card_path = f'{folder}/{member_name}-CARD_BACK'
-            if download_file(asset_url, card_path) != 1:
-                return False
-        elif type == 'AUTOGRAPH':
+            if download_file(asset_url, card_path) == -1:
+                return False, None
+        elif asset_type == 'AUTOGRAPH':
             autograph_path = f'{folder}/{member_name}-AUTOGRAPH'
             if download_file(asset_url, autograph_path) == -1:
-                return False
-        elif type == 'AUTOGRAPH_SPECIAL_NOTE':
+                return False, None
+        elif asset_type == 'AUTOGRAPH_SPECIAL_NOTE':
             autograph_note_path = f'{folder}/{member_name}-AUTOGRAPH_SPECIAL_NOTE'
             if download_file(asset_url, autograph_note_path) == -1:
-                return False
-        elif type == 'VOICE_MESSAGE':
+                return False, None
+        elif asset_type == 'VOICE_MESSAGE':
             voice_path = f'{folder}/{member_name}-VOICE_MESSAGE-{take_id}'
             if download_file(asset_url, voice_path) == -1:
-                return False
-        elif type == 'SPECIAL_NOTE':
+                return False, None
+        elif asset_type == 'SPECIAL_NOTE':
             special_note = f'{folder}/{member_name}-SPECIAL_NOTE-{take_id}'
             if download_file(asset_url, special_note) == -1:
-                return False
+                return False, None
 
     origin_asset = contents['originAsset']
     origin_url = origin_asset['url']
+    links_row['ORIGIN'] = origin_url
     origin_path = f'{folder}/{member_name}-{origin_asset['type']}-{take_id}'
     if download_file(origin_url, origin_path) == -1:
-        return False
+        return False, None
 
-    return True
+    return True, links_row
 
 
 def make_book_csv():
