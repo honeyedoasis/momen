@@ -15,8 +15,6 @@ known_types = ['FULL', 'ORIGIN', 'CARD_BACK', 'AUTOGRAPH', 'VOICE_MESSAGE', 'AUT
 
 edition_data = None
 
-downloaded_path = 'temp/downloaded.txt'
-
 def save_or_load_json(file_path, get_json_func, load_msg=None):
     if os.path.exists(file_path):
         if load_msg:
@@ -193,9 +191,12 @@ def get_boards():
 
     return sorted(mapping.values(), key=get_board_id)
 
+def find_board_for_take(take_id):
+    book = get_take_book()
+
 
 def get_take_book():
-    book_path = f'temp/take_book-{artist_name}.json'
+    book_path = f'temp/{my_username}/take_book-{artist_name}.json'
     if os.path.exists(book_path):
         print(f'Loaded book {book_path}')
         with open(book_path, 'r', encoding='utf-8') as f:
@@ -210,7 +211,7 @@ def get_take_book():
 
 
 def get_all_takes():
-    takes_path = f'temp/takes-{artist_name}.json'
+    takes_path = f'temp/{my_username}/takes-{artist_name}.json'
     if os.path.exists(takes_path):
         print(f'Loaded takes {takes_path}')
         with open(takes_path, 'r', encoding='utf-8') as f:
@@ -225,6 +226,44 @@ def get_all_takes():
         print('Saved takes to', takes_path)
     return takes_data
 
+def get_board_dict():
+    req = lambda: send_request(f'https://momentica.com/api/v2/users/collect-board?username={my_username}&artistId={artist_id}')
+    boards_json = save_or_load_json(f'temp/{my_username}/my-boards.json', req)
+
+    boards = boards_json['userCollectBoards']
+
+    drop_boards = dict()
+    drop_types = set()
+    board_types = set()
+    for user_board in boards:
+        if user_board['artist']['id'] != int(artist_id):
+            continue
+
+        collect_board = user_board['collectBoard']
+        board_types.add(collect_board['type'])
+        drop = collect_board['dropBoard']
+        drop_name = drop['name']
+        drop_types.add(drop['type'])
+
+        if drop_name not in drop_boards:
+            drop_boards[drop_name] = []
+
+        drop_boards[drop_name].append(collect_board)
+    print('DropTypes', drop_types)
+    print('BoardTypes', board_types)
+    return drop_boards
+
+# TODO maybe use boards to get more detailed names
+def read_boards():
+    for drop_board_name, sub_boards in get_board_dict().items():
+        print(drop_board_name)
+        for board in sub_boards:
+            # print('\t', board['name'])
+            full_data = send_request(f'https://momentica.com/api/v1/collect-board?name={board['name']}&username={my_username}')
+            owned_takes = [t for t in full_data['takes'] if t['isOwned']]
+            print(owned_takes)
+            break
+        break
 
 def make_mapping(book):
     folder_map = dict()
@@ -260,15 +299,16 @@ def download_owned(all_takes):
     owned_takes = [t for t in all_takes if t['isOwned']]
 
     downloaded = []
+    downloaded_path = f'temp/{my_username}/downloaded.txt'
     if os.path.exists(downloaded_path):
         with open(downloaded_path, 'r', encoding='utf-8') as f:
-            downloaded = [int(x) for x in f.read().splitlines()]
+            downloaded = f.read().splitlines()
 
     all_links = get_links_csv()
     with open(downloaded_path, 'a', encoding='utf-8') as archive_file:
         for i, take in enumerate(owned_takes):
             take_id = take['takeId']
-            if take_id in downloaded:
+            if str(take_id) in downloaded:
                 # print('Skipping already downloaded ', take_id)
                 continue
 
@@ -387,7 +427,7 @@ def make_book_csv():
                     'Url': f'https://momentica.com/take/{take['takeUuid']}'
                 }
                 out_rows.append(row)  # break
-    with open("temp/drive_book.csv", mode="w", newline="\n", encoding='utf-8') as file:
+    with open(f"temp/{my_username}/drive_book.csv", mode="w", newline="\n", encoding='utf-8') as file:
         fieldnames = ["TakeId", "Collection", "Category", "Url"]
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
@@ -418,7 +458,7 @@ def write_takes(take_list, file_path):
 
 def download_artist_page():
     api_func = lambda : send_request(f'https://momentica.com/api/v1/artist-pages/{artist_name}')
-    artist_json = save_or_load_json('temp/artist.json', api_func, 'Loaded artist page')
+    artist_json = save_or_load_json(f'temp/{my_username}/artist.json', api_func, 'Loaded artist page')
     members = artist_json['artistMembers']
     path = f'momentica/{artist_name}/Profile'
 
@@ -433,17 +473,31 @@ def download_artist_page():
 
 def download_all_boards():
     api_func = lambda : send_request(f'https://momentica.com/api/v1/artist-pages/{artist_id}/collect-boards?sortType=RELEASED_AT_DESC')
-    boards_json = save_or_load_json(f'temp/boards-{artist_name}.json', api_func, 'Loaded boards')
+    boards_json = save_or_load_json(f'temp/{my_username}/boards-{artist_name}.json', api_func, 'Loaded boards')
 
-    types = set()
-    print(len(boards_json['collectBoards']))
-    for b in boards_json['collectBoards']:
-        types.add(b['type'])
-    print(types)
+    out_dir = f'momentica/{artist_name}/thumbnails'
+    os.makedirs(out_dir, exist_ok=True)
+
+    collect_boards = boards_json['collectBoards']
+
+    if len(os.listdir(out_dir)) == len(collect_boards):
+        return
+
+    for i, b in enumerate(collect_boards):
+        file_path = f'{out_dir}/{b['name']}'
+        print('Downloading board thumbnail', i, '/', len(collect_boards))
+        url = b['thumbnail']['url']
+        download_file(url, file_path)
+
+
+def get_collected_boards():
+    api_func = lambda: send_request(f'https://momentica.com/api/v2/users/collect-board?username={my_username}')
+    return save_or_load_json(f'temp/{my_username}/collect-boards.json', api_func, 'Loaded collect boards')
+
 
 def download_top_loaders():
     api_func = lambda : send_request_next(f'https://momentica.com/api/v1/top-loaders?size=100&username={my_username}')
-    top_loaders = save_or_load_json(f'temp/top-loaders.json', api_func, 'Loaded toploaders')
+    top_loaders = save_or_load_json(f'temp/{my_username}/top-loaders.json', api_func, 'Loaded toploaders')
 
     if len(top_loaders) == 0:
         return
@@ -465,7 +519,7 @@ def download_top_loaders():
 
 def download_certi_pics():
     api_func = lambda : send_request_next(f'https://momentica.com/api/v2/certi-pics?uploaderUsername={my_username}')
-    certi_pics = save_or_load_json(f'temp/certi-pics.json', api_func, 'Loaded certi-pics')
+    certi_pics = save_or_load_json(f'temp/{my_username}/certi-pics.json', api_func, 'Loaded certi-pics')
 
     out_dir = 'momentica/certi-pics'
     os.makedirs(out_dir, exist_ok=True)
@@ -510,21 +564,22 @@ def main():
     print('Username:', my_username)
     print('Token:', my_token)
 
-    if not find_artist():
-        input(f'ERROR: failed to find artist {artist_id}. Press ENTER to exit.')
-        return
-
     test_command = f'https://momentica.com/api/v2/users/editions?username={my_username}&artistId={artist_id}&sortType=OWNED_AT_DESC&pageSize=1'
     if not send_request(test_command):
         input('ERROR: invalid username or token. You need to refresh your token once a day!!. Press ENTER to exit.')
         return
 
+    if not find_artist():
+        input(f'ERROR: failed to find artist {artist_id}. Press ENTER to exit.')
+        return
+
     print('Artist:', artist_name, ', Id:', artist_id)
 
-    os.makedirs('temp', exist_ok=True)
+    os.makedirs(f'temp/{my_username}', exist_ok=True)
     os.makedirs(f'momentica/{artist_name}', exist_ok=True)
 
     download_artist_page()
+    download_all_boards()
 
     all_takes = get_all_takes()
     download_owned(all_takes)
