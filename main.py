@@ -471,7 +471,7 @@ def download_artist_page():
     artist_json = save_or_load_json(f'temp/{my_username}/{artist_name}/artist.json', api_func, 'Loaded artist page')
     members = artist_json['artistMembers']
 
-    path = f'momentica/{artist_name}/Profile/'
+    path = f'momentica/{artist_name}/profile/'
     os.makedirs(path, exist_ok=True)
 
     for m in members:
@@ -507,7 +507,7 @@ def download_all_boards():
     api_func = lambda : send_request(f'https://momentica.com/api/v1/artist-pages/{artist_id}/collect-boards?sortType=RELEASED_AT_DESC')
     boards_json = save_or_load_json(f'temp/{my_username}/{artist_name}/boards.json', api_func, 'Loaded boards')
 
-    out_dir = f'momentica/{artist_name}/thumbnails'
+    out_dir = f'momentica/{artist_name}/Thumbnails'
     os.makedirs(out_dir, exist_ok=True)
 
     collect_boards = boards_json['collectBoards']
