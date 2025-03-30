@@ -142,7 +142,8 @@ def send_request_next(api_url, use_post=False, msg='Loading data'):
             else:
                 break
 
-        print('\t', msg, len(out_data), next_api)
+        # print('\t', msg, len(out_data), next_api)
+        print('\t', msg, len(out_data))
 
         next = response['cursor'].get('next')
         if not next:
@@ -213,7 +214,7 @@ def get_take_book():
 def get_all_takes():
     takes_path = f'temp/{my_username}/{artist_name}/takes.json'
     if os.path.exists(takes_path):
-        print(f'Loaded takes {takes_path}')
+        # print(f'Loaded takes {takes_path}')
         with open(takes_path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
@@ -636,7 +637,7 @@ def main():
 
     # write_to_file = input('Do you want to save your owned and missing takes? [y]/[n]: ').lower() == 'y'
     log_takes(all_takes, True)
-    print("See all DIRECT MEDIA LINKS at", LINKS_PATH)
+    print("List of all DIRECT MEDIA LINKS at", LINKS_PATH)
 
     input('🍀Download finished🍀 Press ENTER to exit.')
 
