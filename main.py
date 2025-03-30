@@ -363,7 +363,9 @@ def get_take_folder(take, folder_map):
     folder = folder_map.get(take_id, None)
 
     if not folder:
-        folder = f'momentica/{artist_name}/unknown-collection/{folder}'
+        folder = f'momentica/{artist_name}/unknown-collection'
+    else:
+        folder = f'momentica/{artist_name}/{folder}'
 
     os.makedirs(folder, exist_ok=True)
     return folder
