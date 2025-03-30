@@ -8,8 +8,8 @@ from time import sleep
 
 my_token = ""
 my_username = ""
-artist_id = "2"
-artist_name = "Unknown"
+artist_id = ""
+artist_name = ""
 
 known_types = ['FULL', 'ORIGIN', 'CARD_BACK', 'AUTOGRAPH', 'VOICE_MESSAGE', 'AUTOGRAPH_SPECIAL_NOTE', 'SPECIAL_NOTE']
 
@@ -33,7 +33,7 @@ def save_or_load_json(file_path, get_json_func, load_msg=None):
 def sanitize_filename(filename, replacement=''):
     invalid_chars = r'<>:"/\\|?*'
     for c in invalid_chars:
-        filename = filename.replace(c, '')
+        filename = filename.replace(c, '').strip()
     return filename
 
 def download_file(url, file_path, timeout=10, skip_exists=True):
@@ -196,7 +196,7 @@ def find_board_for_take(take_id):
 
 
 def get_take_book():
-    book_path = f'temp/{my_username}/take_book-{artist_name}.json'
+    book_path = f'temp/{my_username}/{artist_name}/take_book.json'
     if os.path.exists(book_path):
         print(f'Loaded book {book_path}')
         with open(book_path, 'r', encoding='utf-8') as f:
@@ -211,7 +211,7 @@ def get_take_book():
 
 
 def get_all_takes():
-    takes_path = f'temp/{my_username}/takes-{artist_name}.json'
+    takes_path = f'temp/{my_username}/{artist_name}/takes.json'
     if os.path.exists(takes_path):
         print(f'Loaded takes {takes_path}')
         with open(takes_path, 'r', encoding='utf-8') as f:
@@ -277,6 +277,17 @@ def make_mapping(book):
                 folder = f'{collection_name}/{category_name}'
                 folder_map[take['takeId']] = folder
 
+    for take in get_all_takes():
+        if take['takeId'] not in folder_map:
+            if len(take['name'].split(',')) >= 3:
+                folder = sanitize_filename(take['name'].split(',')[1])
+                folder_map[take['takeId']] = f'unknown-collection/{folder}'
+            else:
+                folder_map[take['takeId']] = f'unknown-collection'
+
+    # for k, v in folder_map.items():
+    #     print(k, v)
+
     return folder_map
 
 LINKS_PATH = 'links.csv'
@@ -284,8 +295,6 @@ LINKS_HEADERS = ['TAKE_ID', 'ORIGIN', 'CARD_BACK', 'AUTOGRAPH', 'AUTOGRAPH_SPECI
 
 def get_links_csv():
     if os.path.exists(LINKS_PATH):
-        # with open(LINKS_PATH, 'r', encoding='utf-8') as f:
-        #     return json.load(f)
         with open(LINKS_PATH, "r", newline="") as file:
             return list(csv.DictReader(file, delimiter=","))
 
@@ -334,7 +343,6 @@ def download_owned(all_takes):
         writer = csv.DictWriter(f, delimiter=",", fieldnames=LINKS_HEADERS)
         writer.writeheader()
         writer.writerows(all_links)
-        print("Wrote links to", LINKS_PATH)
 
 
 def make_links_row(take_id):
@@ -354,9 +362,8 @@ def get_take_folder(take, folder_map):
     folder = folder_map.get(take_id, None)
 
     if not folder:
-        folder = sanitize_filename(take['name'].split(',')[1])
+        folder = f'momentica/{artist_name}/unknown-collection/{folder}'
 
-    folder = f'momentica/{artist_name}/Collection/{folder}'
     os.makedirs(folder, exist_ok=True)
     return folder
 
@@ -427,7 +434,7 @@ def make_book_csv():
                     'Url': f'https://momentica.com/take/{take['takeUuid']}'
                 }
                 out_rows.append(row)  # break
-    with open(f"temp/{my_username}/drive_book.csv", mode="w", newline="\n", encoding='utf-8') as file:
+    with open(f"temp/{my_username}/{artist_name}/drive_book.csv", mode="w", newline="\n", encoding='utf-8') as file:
         fieldnames = ["TakeId", "Collection", "Category", "Url"]
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
@@ -458,22 +465,44 @@ def write_takes(take_list, file_path):
 
 def download_artist_page():
     api_func = lambda : send_request(f'https://momentica.com/api/v1/artist-pages/{artist_name}')
-    artist_json = save_or_load_json(f'temp/{my_username}/artist.json', api_func, 'Loaded artist page')
+    artist_json = save_or_load_json(f'temp/{my_username}/{artist_name}/artist.json', api_func, 'Loaded artist page')
     members = artist_json['artistMembers']
-    path = f'momentica/{artist_name}/Profile'
 
+    path = f'momentica/{artist_name}/Profile/'
     os.makedirs(path, exist_ok=True)
-    if len(os.listdir(path)) == len(members):
-        return
 
     for m in members:
         profile_url = m['profileImageUrl']
         name = m['name']
+        print('Download profile for', name)
         download_file(profile_url, f'{path}/{name}')
+
+        for i, special in enumerate(m['specialNumbers']):
+            url = special['mobileImageUrl']
+            download_file(url, f'{path}/{name}-special-{i}')
+
+    artist = artist_json['artist']
+
+    print('Download artist symbols')
+    download_file(artist['symbolImageUrl'], f'{path}/{artist_name}-logo')
+    download_file(artist['basicImageWhiteUrl'], f'{path}/{artist_name}-logo-basic-white')
+    download_file(artist['basicImageBlackUrl'], f'{path}/{artist_name}-logo-basic-black')
+
+    for i, special in enumerate(artist['specialNumbers']):
+        url = special['mobileImageUrl']
+        download_file(url, f'{path}/{artist_name}-special-{i}')
+
+    print('Download artist page images')
+    artist_page = artist_json['artistPage']
+    detail_mobile_url = artist_page['detailPageMobileImageUrl']
+    download_file(detail_mobile_url, f'{path}/{artist_name}-page-mobile')
+    detail_web_url = artist_page['detailPageWebImageUrl']
+    download_file(detail_web_url, f'{path}/{artist_name}-page-web')
+
 
 def download_all_boards():
     api_func = lambda : send_request(f'https://momentica.com/api/v1/artist-pages/{artist_id}/collect-boards?sortType=RELEASED_AT_DESC')
-    boards_json = save_or_load_json(f'temp/{my_username}/boards-{artist_name}.json', api_func, 'Loaded boards')
+    boards_json = save_or_load_json(f'temp/{my_username}/{artist_name}/boards.json', api_func, 'Loaded boards')
 
     out_dir = f'momentica/{artist_name}/thumbnails'
     os.makedirs(out_dir, exist_ok=True)
@@ -496,8 +525,8 @@ def get_collected_boards():
 
 
 def download_top_loaders():
-    api_func = lambda : send_request_next(f'https://momentica.com/api/v1/top-loaders?size=100&username={my_username}')
-    top_loaders = save_or_load_json(f'temp/{my_username}/top-loaders.json', api_func, 'Loaded toploaders')
+    api_func = lambda : send_request_next(f'https://momentica.com/api/v1/top-loaders?size=100&username={my_username}', msg='Load top loaders')
+    top_loaders = save_or_load_json(f'temp/{my_username}/top-loaders.json', api_func, 'Load toploaders')
 
     if len(top_loaders) == 0:
         return
@@ -518,7 +547,7 @@ def download_top_loaders():
 
 
 def download_certi_pics():
-    api_func = lambda : send_request_next(f'https://momentica.com/api/v2/certi-pics?uploaderUsername={my_username}')
+    api_func = lambda : send_request_next(f'https://momentica.com/api/v2/certi-pics?uploaderUsername={my_username}', msg='Load certi pics')
     certi_pics = save_or_load_json(f'temp/{my_username}/certi-pics.json', api_func, 'Loaded certi-pics')
 
     out_dir = 'momentica/certi-pics'
@@ -537,12 +566,20 @@ def download_certi_pics():
 
 def find_artist():
     global artist_name
+    global artist_id
+
     artists = send_request('https://momentica.com/api/v1/artist-pages')
     for page in artists['pages']:
         artist = page['artist']
-        if artist['id'] == int(artist_id):
-            artist_name = artist['name']
+        # if artist['id'] == int(artist_id):
+        #     artist_name = artist['name']
+        #     return True
+        if artist['pageUuid'] == artist_name:
+            artist_id = str(artist['id'])
             return True
+
+    for page in artists['pages']:
+        print(page['artist']['pageUuid'])
     return False
 
 
@@ -550,14 +587,20 @@ def main():
     global my_token
     global my_username
     global artist_id
+    global artist_name
 
     # load from
     config_path = 'config.json'
-    with open(config_path, 'r', encoding='utf-8-sig') as f:
-        config = json.load(f)
-        artist_id = config['artist']
-        my_token = config['token']
-        my_username = config['username']
+    try:
+        with open(config_path, 'r', encoding='utf-8-sig') as f:
+            config = json.load(f)
+            # artist_id = config['artist']
+            artist_name = config['artist']
+            my_token = config['token']
+            my_username = config['username']
+    except Exception as e:
+        input('ERROR: Failed to load config. Make sure the .exe is in the same folder as "config.json"')
+        return
 
     request_auth()
 
@@ -570,12 +613,17 @@ def main():
         return
 
     if not find_artist():
-        input(f'ERROR: failed to find artist {artist_id}. Press ENTER to exit.')
+        input(f'ERROR: failed to find artist {artist_name}. Press ENTER to exit.')
         return
 
-    print('Artist:', artist_name, ', Id:', artist_id)
+    print(f'Artist: {artist_name}, Artist Id: {artist_id}')
 
-    os.makedirs(f'temp/{my_username}', exist_ok=True)
+    takes_path = f'temp/{my_username}/{artist_name}/takes.json'
+    if os.path.exists(takes_path):
+        if input('Refresh owned takes? [y]/[n]:').lower() == 'y':
+            os.remove(takes_path)
+
+    os.makedirs(f'temp/{my_username}/{artist_name}', exist_ok=True)
     os.makedirs(f'momentica/{artist_name}', exist_ok=True)
 
     download_artist_page()
@@ -586,15 +634,11 @@ def main():
     download_top_loaders()
     download_certi_pics()
 
-    write_to_file = input('Do you want to save your owned and missing takes? [y]/[n]: ').lower() == 'y'
-    log_takes(all_takes, write_to_file)
+    # write_to_file = input('Do you want to save your owned and missing takes? [y]/[n]: ').lower() == 'y'
+    log_takes(all_takes, True)
+    print("See all DIRECT MEDIA LINKS at", LINKS_PATH)
 
     input('🍀Download finished🍀 Press ENTER to exit.')
 
-'''
-TODO
-# all collect boards
-# https://momentica.com/api/v1/artist-pages/2/collect-boards?sortType=RELEASED_AT_DESC
-'''
 if __name__ == '__main__':
     main()
