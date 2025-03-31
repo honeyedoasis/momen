@@ -6,6 +6,8 @@ There are 2 parts to this:
 1. A chrome / firefox extension to read your authentication token from momen
 2. An exe file which you pass in your token and username to download the files
 
+If you want to share the links or need help, [visit the discord](https://discord.com/invite/2umr6nQ9e9)
+
 # Instructions
 
 1. Go to releases https://github.com/honeyedoasis/momen/releases
