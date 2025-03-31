@@ -295,7 +295,7 @@ def make_mapping(book):
                 folder = sanitize_filename(take['name'].split(',')[1])
                 folder_map[take['takeId']] = f'unknown-collection/{folder}'
             else:
-                folder_map[take['takeId']] = f'unknown-collection'
+                folder_map[take['takeId']] = f'unknown'
 
     # for k, v in folder_map.items():
     #     print(k, v)
@@ -378,9 +378,9 @@ def get_take_folder(take, folder_map):
     folder = folder_map.get(take_id, None)
 
     if not folder:
-        folder = f'momentica/{artist_name}/unknown-collection'
+        folder = f'momentica/{artist_name}/Boards/unknown'
     else:
-        folder = f'momentica/{artist_name}/{folder}'
+        folder = f'momentica/{artist_name}/Boards/{folder}'
 
     os.makedirs(folder, exist_ok=True)
     return folder
@@ -445,11 +445,11 @@ def download_take(take, folder_map):
             if download_file(asset_url, autograph_note_path) == -1:
                 return False, None
         elif asset_type == 'VOICE_MESSAGE':
-            voice_path = f'{folder}/{member_name}-VOICE_MESSAGE-{take_id}'
+            voice_path = f'{folder}/{member_name}-{take_id}-VOICE_MESSAGE'
             if download_file(asset_url, voice_path) == -1:
                 return False, None
         elif asset_type == 'SPECIAL_NOTE':
-            special_note = f'{folder}/{member_name}-SPECIAL_NOTE-{take_id}'
+            special_note = f'{folder}/{member_name}-{take_id}-SPECIAL_NOTE'
             if download_file(asset_url, special_note) == -1:
                 return False, None
         else:
@@ -460,7 +460,7 @@ def download_take(take, folder_map):
     origin_asset = contents['originAsset']
     origin_url = origin_asset['url']
     links_row['ORIGIN'] = origin_url
-    origin_path = f'{folder}/{member_name}-{origin_asset['type']}-{take_id}'
+    origin_path = f'{folder}/{member_name}-{take_id}-{origin_asset['type']}'
     if download_file(origin_url, origin_path) == -1:
         return False, None
 
