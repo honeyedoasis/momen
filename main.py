@@ -31,10 +31,15 @@ def save_or_load_json(file_path, get_json_func, load_msg=None):
     return data
 
 def sanitize_filename(filename, replacement=''):
-    invalid_chars = r'<>:"/\\|?*'
-    for c in invalid_chars:
-        filename = filename.replace(c, '').strip()
-    return filename
+    remove_chars = r'<>:"/\\|?*'
+    for c in remove_chars:
+        filename = filename.replace(c, '')
+
+    space_replace_chars = r'.'
+    for c in space_replace_chars:
+        filename = filename.replace(c, ' ')
+
+    return filename.strip()
 
 def download_file(url, file_path, timeout=10, skip_exists=True):
     with requests.Session() as session:
@@ -43,6 +48,10 @@ def download_file(url, file_path, timeout=10, skip_exists=True):
 
             content_type = response.headers['content-type']
             ext = mimetypes.guess_extension(content_type)
+            if len(ext) == 0:
+                print(f'Failed to download file. Could not find valid file extension.')
+                print(f'\t{file_path} {url}')
+                return -1
 
             full_path = f'{file_path}{ext}'
             if skip_exists and os.path.exists(full_path):
@@ -61,9 +70,11 @@ def download_file(url, file_path, timeout=10, skip_exists=True):
                 print(f"Failed to download file. Status code: {response.status_code}")
         except requests.exceptions.RequestException as e:
             print(f"An error occurred: {e}")
+            print(f'\t{file_path} {url}')
             return -1
         except Exception as e:
             print(f"exception: {e}")
+            print(f'\t{file_path} {url}')
             return -1
 
     return -1
@@ -280,7 +291,7 @@ def make_mapping(book):
 
     for take in get_all_takes():
         if take['takeId'] not in folder_map:
-            if len(take['name'].split(',')) >= 3:
+            if len(take['name'].split(',')) == 3:
                 folder = sanitize_filename(take['name'].split(',')[1])
                 folder_map[take['takeId']] = f'unknown-collection/{folder}'
             else:
@@ -308,8 +319,11 @@ def download_owned(all_takes):
 
     owned_takes = [t for t in all_takes if t['isOwned']]
 
+    # test_ids = ['d7ca6602-4628-4a6c-96c2-4f16f7b07ef1']
+    # owned_takes = [t for t in all_takes if t['uuid'] in test_ids]
+
     downloaded = []
-    downloaded_path = f'temp/{my_username}/downloaded.txt'
+    downloaded_path = f'temp/{my_username}/{artist_name}/downloaded.txt'
     if os.path.exists(downloaded_path):
         with open(downloaded_path, 'r', encoding='utf-8') as f:
             downloaded = f.read().splitlines()
@@ -326,15 +340,16 @@ def download_owned(all_takes):
             full_data = send_request(url)
 
             success, link_row = download_take(full_data, mapping)
-            print(f'{i}/{len(owned_takes)}: {take_id} {take['name']}')
+            print(f'{i}/{len(owned_takes)}: {take_id} {take['name']} {take['uuid']}')
 
             if success:
                 archive_file.write(f'{take_id}\n')
                 all_links.append(link_row)
                 # print(link_row)
                 downloaded.append(take_id)
+                sleep(0.5)
             else:
-                print('\tFailed to download', take_id)
+                print(f'\tFailed to download: {take_id} {take['name']} {take['uuid']}')
             # if i > 8:
             #     break
 
@@ -371,10 +386,36 @@ def get_take_folder(take, folder_map):
     return folder
 
 
+def get_member_name(take):
+    all_members = get_artist_json()['artistMembers']
+
+    member_names = []
+    if 'artistMembers' in take:
+        take_members = take['artistMembers']
+        if len(all_members) == len(take_members):
+            return artist_name
+        member_names = [m['name'] for m in take_members]
+    else:
+        take_members = take.get('artistMemberIds', [])
+        if len(all_members) == len(take_members):
+            return artist_name
+
+        for id in take_members:
+            for m in all_members:
+                if m['id'] == id:
+                    member_names.append(m['name'])
+                    break
+
+    if len(member_names):
+        return ', '.join(member_names)
+    print('Failed to find artist name for ', take['takeId'], take['uuid'])
+    return artist_name
+
+
 def download_take(take, folder_map):
-    # print(take)
     folder = get_take_folder(take, folder_map)
-    member_name = take['name'].split(',')[0]
+    member_name = sanitize_filename(get_member_name(take))
+
     take_id = take['takeId']
     links_row = make_links_row(take_id)
 
@@ -390,7 +431,7 @@ def download_take(take, folder_map):
         if asset_type not in known_types:
             print('UNKNOWN TYPE ', asset_type)
             print(take) # breakpoint()
-
+            continue
         elif asset_type == 'CARD_BACK':
             card_path = f'{folder}/{member_name}-CARD_BACK'
             if download_file(asset_url, card_path) == -1:
@@ -411,6 +452,10 @@ def download_take(take, folder_map):
             special_note = f'{folder}/{member_name}-SPECIAL_NOTE-{take_id}'
             if download_file(asset_url, special_note) == -1:
                 return False, None
+        else:
+            continue
+
+        sleep(0.5)
 
     origin_asset = contents['originAsset']
     origin_url = origin_asset['url']
@@ -465,13 +510,15 @@ def write_takes(take_list, file_path):
         f.write('\n'.join(lines))
         print('Created', file_path)
 
+def get_artist_json():
+    api_func = lambda : send_request(f'https://momentica.com/api/v1/artist-pages/{artist_name}')
+    return save_or_load_json(f'temp/{my_username}/{artist_name}/artist.json', api_func)
 
 def download_artist_page():
-    api_func = lambda : send_request(f'https://momentica.com/api/v1/artist-pages/{artist_name}')
-    artist_json = save_or_load_json(f'temp/{my_username}/{artist_name}/artist.json', api_func, 'Loaded artist page')
+    artist_json = get_artist_json()
     members = artist_json['artistMembers']
 
-    path = f'momentica/{artist_name}/profile/'
+    path = f'momentica/{artist_name}/Profile/'
     os.makedirs(path, exist_ok=True)
 
     for m in members:
